@@ -38,11 +38,11 @@ public class WordDocumentProcessor : IDocumentProcessor
                     "The 'parameters' property was not found in the input. You need to provide an input in the" +
                     " format {\"parameters\":{ ... }, \"file\":\"base64 encoded docx file\""));
         }
-        if (parameters == null) 
+        if (parameters == null)
         {
             return new DocumentProcessingResult(false, new Error(
                 "The `parameters' property has no values. You need to provide an input in the format" +
-                " {\"parameters\":{ ... }, \"file\":\"base64 encoded docx file\"")); 
+                " {\"parameters\":{ ... }, \"file\":\"base64 encoded docx file\""));
         }
         if (!input.TryGetValue("file", out var inputfile) || inputfile.Type != JTokenType.String)
         {
@@ -60,9 +60,9 @@ public class WordDocumentProcessor : IDocumentProcessor
         if (!Convert.TryFromBase64String(base64, buffer, out int writtenBytes))
         {
             return new DocumentProcessingResult(
-                success: false, 
+                success: false,
                 result: new ParsingError(
-                    message: 
+                    message:
                         "Document is not in base64 format. Make sure you are " +
                         "sending a valid base64 encoded docx file.",
                     bytesParsed: writtenBytes));
@@ -81,7 +81,7 @@ public class WordDocumentProcessor : IDocumentProcessor
         }
 
         return new DocumentProcessingResult(
-            true, 
+            true,
             new JObject(new JProperty("file", Convert.ToBase64String(stream.ToArray()))));
     }
 
@@ -90,7 +90,7 @@ public class WordDocumentProcessor : IDocumentProcessor
         var w = (XNamespace)wordml2006Ns;
         using var doc = WordprocessingDocument.Open(stream, true);
         var mainPart = doc.MainDocumentPart;
-        if (mainPart == null) 
+        if (mainPart == null)
         {
             throw new InvalidOperationException(
                 "Invalid document format. The document is lacking its main part.");
@@ -139,8 +139,8 @@ public class WordDocumentProcessor : IDocumentProcessor
             // There are several possible types for <sdtContent> element (e.g. SdtContentBlock)
             // That's why we don't use a concrete type in the following line.
             var contentElement = sdtElement.Descendants().SingleOrDefault(e => e.XName == w + "sdtContent");
-            if (contentElement == null) 
-            { 
+            if (contentElement == null)
+            {
                 _logger.LogWarning("Placeholder doesn't have any content area.");
                 return;
             }
@@ -160,27 +160,29 @@ public class WordDocumentProcessor : IDocumentProcessor
             {
                 foreach (var text in texts) { text.Remove(); }
             }
-            if (firstText == null)
+
+            if (firstText != null)
             {
-                if (firstRun != null)
-                {
-                    firstRun.AddChild(new Text(token.ToString()));
-                }
-                else if (paragraph != null)
-                {
-                    paragraph.AddChild(new Run(new Text(token.ToString())));
-                }
-                else
-                {
-                    _logger.LogWarning($"Place holder '{tag.Val}' does not have a correct structure.");
-                    return;
-                }
+                firstText.Parent!.Descendants<RunStyle>().FirstOrDefault(s => s.Val == "PlaceholderText")?.Remove();
+                firstText.Remove();
+            }
+
+            if (firstRun != null)
+            {
+                InsertTextNodes(firstRun, token.ToString());
+            }
+            else if (paragraph != null)
+            {
+                var run = new Run();
+                InsertTextNodes(run, token.ToString());
+                paragraph.AddChild(run);
             }
             else
             {
-                firstText.Text = token.ToString();
-                firstText.Parent!.Descendants<RunStyle>().FirstOrDefault(s => s.Val == "PlaceholderText")?.Remove();
+                _logger.LogWarning($"Place holder '{tag.Val}' does not have a correct structure.");
+                return;
             }
+
             paragraph?.Descendants<RunStyle>().FirstOrDefault(s => s.Val == "PlaceholderText")?.Remove();
             firstRun?.Descendants<RunStyle>().FirstOrDefault(s => s.Val == "PlaceholderText")?.Remove();
         }
@@ -239,6 +241,28 @@ public class WordDocumentProcessor : IDocumentProcessor
         else
         {
             _logger.LogWarning("Unsupported placeholder '{0}'", tag.Val);
+        }
+    }
+
+    void InsertTextNodes(Run run, string textualData)
+    {
+        string[] newLineArray = { Environment.NewLine, "\n", "\r\n", "\n\r" };
+        string[] textArray = textualData.Split(newLineArray, StringSplitOptions.None);
+
+        bool first = true;
+
+        foreach (string line in textArray)
+        {
+            if (!first)
+            {
+                run.Append(new Break());
+            }
+
+            first = false;
+
+            Text txt = new Text();
+            txt.Text = line;
+            run.Append(txt);
         }
     }
 }
